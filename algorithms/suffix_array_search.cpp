@@ -59,16 +59,26 @@ vector<int> buildSuffixArray(const string& s, bool verbose) {
     }
 
     for (int k = 1; k < n; k <<= 1) {
-        auto cmp = [&](int i, int j) {
-            if (rank[i] != rank[j]) return rank[i] < rank[j];
-            int ri = i + k < n ? rank[i + k] : -1;
-            int rj = j + k < n ? rank[j + k] : -1;
-            return ri < rj;
-        };
-        sort(sa.begin(), sa.end(), cmp);
+        auto getRank = [&](int i) { return i < n ? rank[i] : -1; };
+        
+        // sort by second half
+        vector<int> nsa(n);
+        int j = 0;
+        for (int i = n - k; i < n; i++) nsa[j++] = i;
+        for (int i = 0; i < n; i++) if (sa[i] >= k) nsa[j++] = sa[i] - k;
+        
+        // sort by first half
+        int maxRank = *max_element(rank.begin(), rank.end());
+        vector<int> cnt(maxRank + 2, 0);
+        for (int i = 0; i < n; i++) cnt[rank[i] + 1]++;
+        for (int i = 1; i <= maxRank + 1; i++) cnt[i] += cnt[i - 1];
+        for (int i = n - 1; i >= 0; i--) sa[--cnt[rank[nsa[i]] + 1]] = nsa[i];
+        
         tmp[sa[0]] = 0;
-        for (int i = 1; i < n; i++)
-            tmp[sa[i]] = tmp[sa[i - 1]] + cmp(sa[i - 1], sa[i]);
+        for (int i = 1; i < n; i++) {
+            bool same = (rank[sa[i]] == rank[sa[i - 1]]) && (getRank(sa[i] + k) == getRank(sa[i - 1] + k));
+            tmp[sa[i]] = tmp[sa[i - 1]] + (same ? 0 : 1);
+        }
         rank = tmp;
         if (rank[sa[n - 1]] == n - 1) break;
     }

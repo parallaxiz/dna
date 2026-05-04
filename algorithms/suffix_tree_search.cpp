@@ -79,7 +79,10 @@ struct SuffixTree {
     int lastNewNode;
 
     SuffixTree(const string& s) : text(s), leafEnd(0), activeLen(0), remaining(0), lastNewNode(-1) {
-        nodes.reserve(s.size() * 2 + 10);
+        // Reserve a more conservative amount to avoid OOM on 32-bit
+        // 1.5 * size is usually enough for DNA sequences
+        if (s.size() < 10000000) nodes.reserve(s.size() * 2 + 10);
+        else nodes.reserve(s.size() * 1.5); 
         root = newNode(-1, -1);
         activeNode = root;
         activeEdge = 0;
@@ -100,14 +103,13 @@ struct SuffixTree {
             if (activeLen == 0) activeEdge = pos;
 
             int idx = charToIndex(text[activeEdge]);
-            if (nodes[activeNode].children[idx] == -1) {
+            int nxt = nodes[activeNode].children[idx];
+
+            if (nxt == -1) {
                 nodes[activeNode].children[idx] = newNode(pos, -1);
-                if (lastNewNode != -1) {
-                    nodes[lastNewNode].suffixLink = activeNode;
-                    lastNewNode = -1;
-                }
+                if (lastNewNode != -1) nodes[lastNewNode].suffixLink = activeNode;
+                lastNewNode = activeNode;
             } else {
-                int nxt = nodes[activeNode].children[idx];
                 int eLen = nodes[nxt].edgeLen(leafEnd);
                 if (activeLen >= eLen) {
                     activeEdge += eLen;
@@ -115,20 +117,19 @@ struct SuffixTree {
                     activeNode = nxt;
                     continue;
                 }
+
                 if (text[nodes[nxt].start + activeLen] == text[pos]) {
+                    if (lastNewNode != -1 && activeNode != root) nodes[lastNewNode].suffixLink = activeNode;
                     activeLen++;
-                    if (lastNewNode != -1) {
-                        nodes[lastNewNode].suffixLink = activeNode;
-                        lastNewNode = -1;
-                    }
                     break;
                 }
-                // split
+
                 int split = newNode(nodes[nxt].start, nodes[nxt].start + activeLen);
                 nodes[activeNode].children[idx] = split;
                 nodes[split].children[charToIndex(text[pos])] = newNode(pos, -1);
                 nodes[nxt].start += activeLen;
                 nodes[split].children[charToIndex(text[nodes[nxt].start])] = nxt;
+
                 if (lastNewNode != -1) nodes[lastNewNode].suffixLink = split;
                 lastNewNode = split;
             }
@@ -142,21 +143,30 @@ struct SuffixTree {
         }
     }
 
-    // ── collect all leaf positions under a node ────────────
-    void collectLeaves(int node, int depth, vector<int>& result) const {
-        const Node& nd = nodes[node];
-        bool isLeaf = true;
-        for(int i=0; i<5; i++) if(nd.children[i] != -1) { isLeaf = false; break; }
-        
-        if (isLeaf) {
-            result.push_back(text.size() - depth);
-            return;
-        }
-        for(int i=0; i<5; i++) {
-            int child = nd.children[i];
-            if (child == -1) continue;
-            int eLen = nodes[child].edgeLen(leafEnd);
-            collectLeaves(child, depth + eLen, result);
+    // ── collect all leaf positions under a node (iterative) ────────
+    void collectLeaves(int rootNode, int rootDepth, vector<int>& result) const {
+        struct Frame { int node; int depth; };
+        vector<Frame> stack;
+        stack.push_back({rootNode, rootDepth});
+
+        while(!stack.empty()) {
+            Frame f = stack.back();
+            stack.pop_back();
+
+            const Node& nd = nodes[f.node];
+            bool isLeaf = true;
+            for(int i=0; i<5; i++) if(nd.children[i] != -1) { isLeaf = false; break; }
+            
+            if (isLeaf) {
+                result.push_back(text.size() - f.depth);
+            } else {
+                for(int i=0; i<5; i++) {
+                    int child = nd.children[i];
+                    if (child == -1) continue;
+                    int eLen = nodes[child].edgeLen(leafEnd);
+                    stack.push_back({child, f.depth + eLen});
+                }
+            }
         }
     }
 
@@ -164,7 +174,6 @@ struct SuffixTree {
     vector<int> search(const string& pat, bool verbose) const {
         vector<int> matches;
         int node = root;
-        int pi = 0;  // index into pattern
         int m = pat.size();
         int step = 0;
 
@@ -173,67 +182,31 @@ struct SuffixTree {
             cout << "  Looking for: " << colourSeq(pat) << " (" << m << " bp)\n\n";
         }
 
-        while (pi < m) {
-            char c = pat[pi];
-            int idx = charToIndex(c);
-            step++;
-
-            if (nodes[node].children[idx] == -1) {
-                if (verbose)
-                    cout << "    step " << setw(2) << step
-                         << " │ no edge for '" << colourBase(c) << "' at node " << node
-                         << "  → " << RED << "NOT FOUND" << RESET << "\n";
+        for (int pi = 0; pi < m; ) {
+            int idx = charToIndex(pat[pi]);
+            int child = nodes[node].children[idx];
+            if (child == -1) {
+                if (verbose) cout << "    step " << step << " │ no edge for '" << colourBase(pat[pi]) << "' → " << RED << "NOT FOUND" << RESET << "\n";
                 return {};
             }
-
-            int child = nodes[node].children[idx];
+            
             int eStart = nodes[child].start;
             int eLen = nodes[child].edgeLen(leafEnd);
-            string edgeLabel = text.substr(eStart, eLen);
-
-            if (verbose) {
-                cout << "    step " << setw(2) << step
-                     << " │ follow edge '" << colourSeq(edgeLabel.substr(0, min(20, (int)edgeLabel.size()))) << "'";
-                if ((int)edgeLabel.size() > 20) cout << DIM << "..." << RESET;
-                cout << "  (node " << node << " → " << child << ")\n";
-            }
-
-            // match along the edge
             int j = 0;
             while (j < eLen && pi < m) {
-                if (text[eStart + j] != pat[pi]) {
-                    if (verbose)
-                        cout << "           mismatch at edge offset " << j
-                             << ": '" << colourBase(text[eStart + j]) << "' vs '"
-                             << colourBase(pat[pi]) << "'  → " << RED << "NOT FOUND" << RESET << "\n";
-                    return {};
-                }
-                j++;
-                pi++;
+                if (text[eStart + j] != pat[pi]) return {};
+                j++; pi++;
             }
 
-            if (pi < m) {
-                node = child;  // continue from child
+            if (pi == m) {
+                collectLeaves(child, pi, matches);
             } else {
-                // pattern fully matched — collect leaves
-                if (j < eLen) {
-                    // pattern ends in the middle of an edge
-                    if (verbose)
-                        cout << "           pattern matched at edge offset " << j
-                             << " (mid-edge) → collecting leaves\n";
-                }
-                int depth = pi;  // characters consumed from root
-                // but we need depth from this child node
-                collectLeaves(child, depth, matches);
+                node = child;
             }
         }
 
         sort(matches.begin(), matches.end());
-
-        if (verbose) {
-            cout << "\n  Traversal steps: " << BOLD << step << RESET << "\n";
-        }
-
+        if (verbose) cout << "\n  Traversal steps: " << BOLD << step << RESET << "\n";
         return matches;
     }
 
@@ -249,14 +222,7 @@ struct SuffixTree {
             for (int i = 0; i < depth; i++) cout << "  ";
             cout << DIM << "├─ " << RESET << colourSeq(label);
             if (eLen > 25) cout << DIM << "..." << RESET;
-            cout << DIM << "  (node " << child << ")" << RESET;
-
-            bool isLeaf = true;
-            for(int j=0; j<5; j++) if(nodes[child].children[j] != -1) { isLeaf = false; break; }
-            if (isLeaf)
-                cout << "  " << GREEN << "●" << RESET;                // leaf
             cout << "\n";
-
             printTree(child, depth + 1, maxDepth);
         }
     }

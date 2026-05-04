@@ -64,9 +64,8 @@ struct DAWG {
     struct State {
         int len, link;
         int next[5];
-        bool isClone;               // for display purposes
-        long long cnt;              // endpos count
-        State() : len(0), link(-1), isClone(false), cnt(0) {
+        int cnt;                    // endpos count
+        State() : len(0), link(-1), cnt(0) {
             for(int i=0; i<5; i++) next[i] = -1;
         }
     };
@@ -75,7 +74,7 @@ struct DAWG {
     int last;
 
     DAWG(int max_n = 0) {
-        if (max_n > 0) st.reserve(max_n * 2 + 10);
+        // No reserve here to avoid contiguous memory requirement on 32-bit
         st.emplace_back();          // initial state (id = 0)
         st[0].link = -1;
         st[0].len = 0;
@@ -95,7 +94,6 @@ struct DAWG {
             int clone = st.size();
             st.push_back(st[q]);
             st[clone].len = st[last].len + 1;
-            st[clone].isClone = true;
             st[clone].cnt = 0;
 
             while (last != -1 && st[last].next[idx] != -1 && st[last].next[idx] == q) {
@@ -129,7 +127,6 @@ struct DAWG {
                 int clone = st.size();
                 st.push_back(st[q]);
                 st[clone].len = st[p].len + 1;
-                st[clone].isClone = true;
                 st[clone].cnt = 0;
 
                 while (p != -1 && st[p].next[idx] != -1 && st[p].next[idx] == q) {
@@ -153,17 +150,22 @@ struct DAWG {
         }
     }
 
-    // ── count occurrences by propagating counts up suffix links ─
+    // ── count occurrences by propagating counts up suffix links (O(n)) ─
     void computeCounts() {
-        // topological ordering by length (descending)
         int sz = st.size();
+        int maxLen = 0;
+        for (int i = 0; i < sz; i++) if (st[i].len > maxLen) maxLen = st[i].len;
+        
+        vector<int> count(maxLen + 1, 0);
+        for (int i = 0; i < sz; i++) count[st[i].len]++;
+        for (int i = 1; i <= maxLen; i++) count[i] += count[i-1];
+        
         vector<int> order(sz);
-        iota(order.begin(), order.end(), 0);
-        sort(order.begin(), order.end(), [&](int a, int b) {
-            return st[a].len > st[b].len;
-        });
-        for (int v : order) {
-            if (st[v].link >= 0)
+        for (int i = 0; i < sz; i++) order[--count[st[i].len]] = i;
+        
+        for (int i = sz - 1; i >= 0; i--) {
+            int v = order[i];
+            if (st[v].link != -1)
                 st[st[v].link].cnt += st[v].cnt;
         }
     }
@@ -229,7 +231,7 @@ struct DAWG {
             cout << "  " << setw(4) << i << "  │ "
                  << setw(3) << st[i].len << "  │ "
                  << setw(3) << st[i].link << "  │ "
-                 << (st[i].isClone ? MAGENTA + string("  yes") + RESET : DIM + string("   no") + RESET) << "  │ ";
+                 << DIM << string("   no") << RESET << "  │ ";
 
             bool first = true;
             char idxToChar[] = {'A', 'T', 'G', 'C', '$'};

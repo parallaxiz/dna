@@ -57,13 +57,15 @@ def search():
 
     results = {}
     try:
-        for algo in algos:
-            res = run_algo(algo, seq_path, pat_path)
-            results[algo] = res
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor() as executor:
+            futures = {algo: executor.submit(run_algo, algo, seq_path, pat_path) for algo in algos}
+            for algo, future in futures.items():
+                results[algo] = future.result()
     finally:
-        os.remove(seq_path)
-        os.remove(pat_path)
-        
+        if os.path.exists(seq_path): os.remove(seq_path)
+        if os.path.exists(pat_path): os.remove(pat_path)
+            
     return jsonify({"results": results})
 
 @app.route("/api/compare", methods=["POST"])
