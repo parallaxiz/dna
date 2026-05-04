@@ -13,6 +13,9 @@
  */
 
 #include <iostream>
+#include <numeric>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -136,7 +139,7 @@ struct SuffixTree {
             result.push_back(text.size() - depth);
             return;
         }
-        for (auto& [ch, child] : nd.children) {
+        for (auto& kv : nd.children) { auto ch = kv.first; auto child = kv.second;
             int eLen = nodes[child].edgeLen(leafEnd);
             collectLeaves(child, depth + eLen, result);
         }
@@ -221,7 +224,7 @@ struct SuffixTree {
     // ── print tree structure (abbreviated) ─────────────────
     void printTree(int node, int depth, int maxDepth) const {
         if (depth > maxDepth) return;
-        for (auto& [ch, child] : nodes[node].children) {
+        for (auto& kv : nodes[node].children) { auto ch = kv.first; auto child = kv.second;
             int eLen = nodes[child].edgeLen(leafEnd);
             string label = text.substr(nodes[child].start, min(eLen, 25));
 
@@ -241,69 +244,60 @@ struct SuffixTree {
 
 // ── main ───────────────────────────────────────────────────
 int main(int argc, char* argv[]) {
-    string seq = "ATGAAATCGATCGATCGATCGTAGCTAGCTAGCTATGAAAGCTAGCTATGAAATCGATCGTAGCTATGAAAGCTAGCTATGAAA";
-    string pat = "ATGAAA";
-
-    if (argc >= 3) {
-        seq = argv[1];
-        pat = argv[2];
+    string seq, pat;
+    bool jsonOut = false;
+    for(int i=1; i<argc; i++) {
+        string arg = argv[i];
+        if (arg == "--json") jsonOut = true;
+        else if (seq.empty()) seq = arg;
+        else if (pat.empty()) pat = arg;
     }
 
-    for (auto& c : seq) c = toupper(c);
-    for (auto& c : pat) c = toupper(c);
+    if (!seq.empty()) {
+        ifstream fs(seq);
+        if (fs.good()) { stringstream buffer; buffer << fs.rdbuf(); seq = buffer.str(); }
+    } else {
+        seq = "ATGAAATCGATCGATCGATCGTAGCTAGCTAGCTATGAAAGCTAGCTATGAAATCGATCGTAGCTATGAAAGCTAGCTATGAAA";
+    }
 
-    // Append sentinel
-    string seqS = seq + "$";
+    if (!pat.empty()) {
+        ifstream fp(pat);
+        if (fp.good()) { stringstream buffer; buffer << fp.rdbuf(); pat = buffer.str(); }
+    } else {
+        pat = "ATGAAA";
+    }
 
-    cout << "\n" << BOLD << GREEN
-         << "╔══════════════════════════════════════════════════╗\n"
-         << "║          SUFFIX TREE PATTERN SEARCH             ║\n"
-         << "╚══════════════════════════════════════════════════╝"
-         << RESET << "\n\n";
+    for (auto& c : seq) { if (c != '$') c = toupper(c); }
+    for (auto& c : pat) { if (c != '$') c = toupper(c); }
 
-    cout << DIM << "Algorithm : " << RESET << "Ukkonen's online construction + tree walk\n";
-    cout << DIM << "Build     : " << RESET << "O(n)\n";
-    cout << DIM << "Search    : " << RESET << "O(m + k)   (k = number of matches)\n";
-    cout << DIM << "Sequence  : " << RESET << seq.size() << " bp\n";
-    cout << DIM << "Pattern   : " << RESET << colourSeq(pat) << " (" << pat.size() << " bp)\n\n";
+    double buildUs = 0.0;
+    double searchUs = 0.0;
 
-    // Build
+    string seqS = seq;
+    if (seqS.empty() || seqS.back() != '$') seqS += "$";
+    if (!jsonOut) cout << "Suffix Tree Pattern Search\n";
     auto t0 = chrono::high_resolution_clock::now();
     SuffixTree st(seqS);
     auto t1 = chrono::high_resolution_clock::now();
-    double buildUs = chrono::duration<double, micro>(t1 - t0).count();
+    buildUs = chrono::duration<double, micro>(t1 - t0).count();
 
-    cout << DIM << "──────── Tree Structure (depth ≤ 3) ────────" << RESET << "\n\n";
-    cout << DIM << "  root" << RESET << "\n";
-    st.printTree(st.root, 1, 3);
-    cout << "\n  " << DIM << "Total nodes: " << RESET << BOLD << st.nodes.size() << RESET << "\n\n";
-
-    // Search
     auto t2 = chrono::high_resolution_clock::now();
-    auto matches = st.search(pat, true);
+    auto matches = st.search(pat, !jsonOut);
     auto t3 = chrono::high_resolution_clock::now();
-    double searchUs = chrono::duration<double, micro>(t3 - t2).count();
+    searchUs = chrono::duration<double, micro>(t3 - t2).count();
 
-    cout << "\n" << DIM << "──────── Results ────────" << RESET << "\n\n";
-    cout << "  Matches found   : " << BOLD << GREEN << matches.size() << RESET << "\n";
-    cout << "  Match positions : ";
-    for (size_t k = 0; k < matches.size(); k++) {
-        if (k) cout << ", ";
-        cout << CYAN << matches[k] << RESET;
+    if (jsonOut) {
+        cout << "{\"matches\":[";
+        for (size_t k = 0; k < matches.size(); k++) {
+            if (k) cout << ",";
+            cout << matches[k];
+        }
+        cout << "], \"buildUs\":" << buildUs << ", \"searchUs\":" << searchUs << "}\n";
+        return 0;
     }
-    if (matches.empty()) cout << DIM << "(none)" << RESET;
-    cout << "\n";
 
-    cout << "\n" << DIM << "──────── Timing ────────" << RESET << "\n\n";
-    auto fmtTime = [](double us) -> string {
-        char buf[64];
-        if (us < 1000) snprintf(buf, sizeof(buf), "%.2f µs", us);
-        else            snprintf(buf, sizeof(buf), "%.3f ms", us / 1000.0);
-        return string(buf);
-    };
-    cout << "  Build time  : " << BOLD << YELLOW << fmtTime(buildUs) << RESET << "\n";
-    cout << "  Search time : " << BOLD << YELLOW << fmtTime(searchUs) << RESET << "\n";
-    cout << "  Total       : " << BOLD << YELLOW << fmtTime(buildUs + searchUs) << RESET << "\n\n";
-
+    cout << "\n  Matches found   : " << matches.size() << "\n";
+    cout << "  Build time  : " << buildUs << " us\n";
+    cout << "  Search time : " << searchUs << " us\n";
     return 0;
 }

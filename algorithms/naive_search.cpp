@@ -12,6 +12,9 @@
  */
 
 #include <iostream>
+#include <numeric>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <chrono>
@@ -144,31 +147,53 @@ vector<int> naiveSearch(const string& seq, const string& pat, bool verbose) {
 
 // ── main ───────────────────────────────────────────────────
 int main(int argc, char* argv[]) {
-    string seq = "ATGAAATCGATCGATCGATCGTAGCTAGCTAGCTATGAAAGCTAGCTATGAAATCGATCGTAGCTATGAAAGCTAGCTATGAAA";
-    string pat = "ATGAAA";
-
-    if (argc >= 3) {
-        seq = argv[1];
-        pat = argv[2];
+    string seq, pat;
+    bool jsonOut = false;
+    for(int i=1; i<argc; i++) {
+        string arg = argv[i];
+        if (arg == "--json") jsonOut = true;
+        else if (seq.empty()) seq = arg;
+        else if (pat.empty()) pat = arg;
     }
 
-    // Uppercase
-    for (auto& c : seq) c = toupper(c);
-    for (auto& c : pat) c = toupper(c);
+    if (!seq.empty()) {
+        ifstream fs(seq);
+        if (fs.good()) { stringstream buffer; buffer << fs.rdbuf(); seq = buffer.str(); }
+    } else {
+        seq = "ATGAAATCGATCGATCGATCGTAGCTAGCTAGCTATGAAAGCTAGCTATGAAATCGATCGTAGCTATGAAAGCTAGCTATGAAA";
+    }
 
-    // Timed run
+    if (!pat.empty()) {
+        ifstream fp(pat);
+        if (fp.good()) { stringstream buffer; buffer << fp.rdbuf(); pat = buffer.str(); }
+    } else {
+        pat = "ATGAAA";
+    }
+
+    for (auto& c : seq) { if (c != '$') c = toupper(c); }
+    for (auto& c : pat) { if (c != '$') c = toupper(c); }
+
+    double buildUs = 0.0;
+    double searchUs = 0.0;
+
+    if (!jsonOut) cout << "Naive Pattern Search\n";
     auto t0 = chrono::high_resolution_clock::now();
-    auto matches = naiveSearch(seq, pat, true);
+    auto matches = naiveSearch(seq, pat, !jsonOut);
     auto t1 = chrono::high_resolution_clock::now();
+    searchUs = chrono::duration<double, micro>(t1 - t0).count();
 
-    double us = chrono::duration<double, micro>(t1 - t0).count();
+    if (jsonOut) {
+        cout << "{\"matches\":[";
+        for (size_t k = 0; k < matches.size(); k++) {
+            if (k) cout << ",";
+            cout << matches[k];
+        }
+        cout << "], \"buildUs\":" << buildUs << ", \"searchUs\":" << searchUs << "}\n";
+        return 0;
+    }
 
-    cout << "\n" << DIM << "──────── Timing ────────" << RESET << "\n\n";
-    if (us < 1000)
-        cout << "  Elapsed: " << BOLD << YELLOW << fixed << setprecision(2) << us << " µs" << RESET << "\n";
-    else
-        cout << "  Elapsed: " << BOLD << YELLOW << fixed << setprecision(3) << us / 1000.0 << " ms" << RESET << "\n";
-
-    cout << "\n";
+    cout << "\n  Matches found   : " << matches.size() << "\n";
+    cout << "  Build time  : " << buildUs << " us\n";
+    cout << "  Search time : " << searchUs << " us\n";
     return 0;
 }

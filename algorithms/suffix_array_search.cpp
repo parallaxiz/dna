@@ -12,6 +12,8 @@
  */
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -178,61 +180,58 @@ vector<int> suffixArraySearch(const string& seq, const vector<int>& sa,
 
 // ── main ───────────────────────────────────────────────────
 int main(int argc, char* argv[]) {
-    string seq = "ATGAAATCGATCGATCGATCGTAGCTAGCTAGCTATGAAAGCTAGCTATGAAATCGATCGTAGCTATGAAAGCTAGCTATGAAA";
-    string pat = "ATGAAA";
-
-    if (argc >= 3) {
-        seq = argv[1];
-        pat = argv[2];
+    string seq, pat;
+    bool jsonOut = false;
+    for(int i=1; i<argc; i++) {
+        string arg = argv[i];
+        if (arg == "--json") jsonOut = true;
+        else if (seq.empty()) seq = arg;
+        else if (pat.empty()) pat = arg;
     }
 
-    for (auto& c : seq) c = toupper(c);
-    for (auto& c : pat) c = toupper(c);
+    if (!seq.empty()) {
+        ifstream fs(seq);
+        if (fs.good()) { stringstream buffer; buffer << fs.rdbuf(); seq = buffer.str(); }
+    } else {
+        seq = "ATGAAATCGATCGATCGATCGTAGCTAGCTAGCTATGAAAGCTAGCTATGAAATCGATCGTAGCTATGAAAGCTAGCTATGAAA";
+    }
 
-    cout << "\n" << BOLD << YELLOW
-         << "╔══════════════════════════════════════════════════╗\n"
-         << "║         SUFFIX ARRAY PATTERN SEARCH             ║\n"
-         << "╚══════════════════════════════════════════════════╝"
-         << RESET << "\n\n";
+    if (!pat.empty()) {
+        ifstream fp(pat);
+        if (fp.good()) { stringstream buffer; buffer << fp.rdbuf(); pat = buffer.str(); }
+    } else {
+        pat = "ATGAAA";
+    }
 
-    cout << DIM << "Algorithm : " << RESET << "Sort all suffixes, then binary search\n";
-    cout << DIM << "Build     : " << RESET << "O(n log n)\n";
-    cout << DIM << "Search    : " << RESET << "O(m log n)\n";
-    cout << DIM << "Sequence  : " << RESET << seq.size() << " bp\n";
-    cout << DIM << "Pattern   : " << RESET << colourSeq(pat) << " (" << pat.size() << " bp)\n\n";
+    for (auto& c : seq) { if (c != '$') c = toupper(c); }
+    for (auto& c : pat) { if (c != '$') c = toupper(c); }
 
-    // Build
+    double buildUs = 0.0;
+    double searchUs = 0.0;
+
+    if (!jsonOut) cout << "Suffix Array Pattern Search\n";
     auto t0 = chrono::high_resolution_clock::now();
-    auto sa = buildSuffixArray(seq, true);
+    auto sa = buildSuffixArray(seq, !jsonOut);
     auto t1 = chrono::high_resolution_clock::now();
-    double buildUs = chrono::duration<double, micro>(t1 - t0).count();
+    buildUs = chrono::duration<double, micro>(t1 - t0).count();
 
-    // Search
     auto t2 = chrono::high_resolution_clock::now();
-    auto matches = suffixArraySearch(seq, sa, pat, true);
+    auto matches = suffixArraySearch(seq, sa, pat, !jsonOut);
     auto t3 = chrono::high_resolution_clock::now();
-    double searchUs = chrono::duration<double, micro>(t3 - t2).count();
+    searchUs = chrono::duration<double, micro>(t3 - t2).count();
 
-    cout << "\n" << DIM << "──────── Results ────────" << RESET << "\n\n";
-    cout << "  Matches found   : " << BOLD << GREEN << matches.size() << RESET << "\n";
-    cout << "  Match positions : ";
-    for (size_t k = 0; k < matches.size(); k++) {
-        if (k) cout << ", ";
-        cout << CYAN << matches[k] << RESET;
+    if (jsonOut) {
+        cout << "{\"matches\":[";
+        for (size_t k = 0; k < matches.size(); k++) {
+            if (k) cout << ",";
+            cout << matches[k];
+        }
+        cout << "], \"buildUs\":" << buildUs << ", \"searchUs\":" << searchUs << "}\n";
+        return 0;
     }
-    if (matches.empty()) cout << DIM << "(none)" << RESET;
-    cout << "\n";
 
-    cout << "\n" << DIM << "──────── Timing ────────" << RESET << "\n\n";
-    auto fmtTime = [](double us) -> string {
-        char buf[64];
-        if (us < 1000) snprintf(buf, sizeof(buf), "%.2f µs", us);
-        else            snprintf(buf, sizeof(buf), "%.3f ms", us / 1000.0);
-        return string(buf);
-    };
-    cout << "  Build time  : " << BOLD << YELLOW << fmtTime(buildUs) << RESET << "\n";
-    cout << "  Search time : " << BOLD << YELLOW << fmtTime(searchUs) << RESET << "\n";
-    cout << "  Total       : " << BOLD << YELLOW << fmtTime(buildUs + searchUs) << RESET << "\n\n";
-
+    cout << "\n  Matches found   : " << matches.size() << "\n";
+    cout << "  Build time  : " << buildUs << " us\n";
+    cout << "  Search time : " << searchUs << " us\n";
     return 0;
 }

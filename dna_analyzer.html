@@ -1189,7 +1189,9 @@
       <div style="display:flex;flex-direction:column;gap:16px">
         <div class="card">
           <div class="card-title">Search Time vs Sequence Length</div>
-          <canvas id="bench-chart" height="180"></canvas>
+          <div style="position: relative; height: 200px; width: 100%;">
+            <canvas id="bench-chart"></canvas>
+          </div>
         </div>
       </div>
     </div>
@@ -1197,7 +1199,9 @@
     <div class="grid-2">
       <div class="card">
         <div class="card-title">Memory Usage</div>
-        <canvas id="mem-chart" height="180"></canvas>
+        <div style="position: relative; height: 200px; width: 100%;">
+          <canvas id="mem-chart"></canvas>
+        </div>
       </div>
       <div class="card">
         <div class="card-title">Benchmark Summary Table</div>
@@ -1486,140 +1490,77 @@ updateSeqStats(document.getElementById('seq-input').value);
 // ============================================================
 //  PATTERN SEARCH
 // ============================================================
-function naiveSearch(seq, pat) {
-  const positions = [];
-  for (let i = 0; i <= seq.length - pat.length; i++) {
-    if (seq.substring(i, i + pat.length) === pat) positions.push(i);
-  }
-  return positions;
-}
 
-function simulateSuffixArraySearch(seq, pat) {
-  // Simulate using naive but with faked timing
-  return naiveSearch(seq, pat);
-}
 
-function runSearch() {
-  const seq = document.getElementById('seq-input').value.toUpperCase().replace(/[^ATCG]/g, '');
-  const pat = document.getElementById('pattern-input').value.toUpperCase().replace(/[^ATCG]/g, '');
+async function runSearch() {
+      const seq = document.getElementById('seq-input').value.toUpperCase().replace(/[^ATCG]/g, '');
+      const pat = document.getElementById('pattern-input').value.toUpperCase().replace(/[^ATCG]/g, '');
+      if (!seq || !pat) return;
+      if (pat.length > seq.length) { document.getElementById('match-count').textContent = 'Pattern longer than sequence'; return; }
+      updateSeqStats(seq);
 
-  if (!seq || !pat) return;
-  if (pat.length > seq.length) {
-    document.getElementById('match-count').textContent = 'Pattern longer than sequence';
-    return;
-  }
+      const loading = document.getElementById('loading-search');
+      loading.classList.add('show');
+      document.getElementById('algo-results').innerHTML = '';
+      document.getElementById('match-tags').innerHTML = '';
+      document.getElementById('findings-list').innerHTML = '<div class="finding" style="color:var(--text-dim)">Computing via C++ Backend...</div>';
 
-  updateSeqStats(seq);
+      const checked = [];
+      if (document.getElementById('chk-naive').checked) checked.push('naive_search');
+      if (document.getElementById('chk-sa').checked) checked.push('suffix_array_search');
+      if (document.getElementById('chk-st').checked) checked.push('suffix_tree_search');
+      if (document.getElementById('chk-dawg').checked) checked.push('dawg_search');
+      if (!checked.length) { loading.classList.remove('show'); return; }
 
-  const loading = document.getElementById('loading-search');
-  loading.classList.add('show');
-  document.getElementById('algo-results').innerHTML = '';
-  document.getElementById('match-tags').innerHTML = '';
-  document.getElementById('findings-list').innerHTML = '<div class="finding" style="color:var(--text-dim)">Computing...</div>';
+      try {
+        const resp = await fetch('/api/search', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({seq, pat, algos: checked}) });
+        const data = await resp.json();
+        loading.classList.remove('show');
 
-  setTimeout(() => {
-    loading.classList.remove('show');
+        const activeAlgos = [];
+        const algoMap = { 'naive_search': {name: 'Naive Search', complexity: 'O(n×m)', barClass: 'bar-naive', color: 'var(--accent4)'}, 'suffix_array_search': {name: 'Suffix Array', complexity: 'O(m log n)', barClass: 'bar-suffix-array', color: 'var(--accent3)'}, 'suffix_tree_search': {name: 'Suffix Tree', complexity: 'O(m + k)', barClass: 'bar-suffix-tree', color: 'var(--accent2)'}, 'dawg_search': {name: 'DAWG', complexity: 'O(m)', barClass: 'bar-dawg', color: '#dd88ff'} };
+        let maxTime = 0.0001;
+        for (const algo of checked) {
+            const res = data.results[algo];
+            if (res && res.error) continue;
+            if (res) {
+                const timeMs = (res.buildUs + res.searchUs) / 1000.0;
+                if (timeMs > maxTime) maxTime = timeMs;
+                activeAlgos.push({...algoMap[algo], time: timeMs, matches: res.matches, orig: res});
+            }
+        }
+        if (!activeAlgos.length) return;
+        const fastest = activeAlgos.reduce((a, b) => a.time < b.time ? a : b);
 
-    // Actual search
-    const t0 = performance.now();
-    const naiveMatches = naiveSearch(seq, pat);
-    const tNaive = performance.now() - t0;
+        const container = document.getElementById('algo-results');
+        activeAlgos.forEach(algo => {
+          const barWidth = (algo.time / maxTime * 95).toFixed(1);
+          const timeStr = algo.time < 1 ? (algo.time * 1000).toFixed(2) + ' µs' : algo.time < 1000 ? algo.time.toFixed(3) + ' ms' : (algo.time / 1000).toFixed(2) + ' s';
+          const speedup = algo === fastest ? '⚡ FASTEST' : ((algo.time / fastest.time).toFixed(1) + '× slower');
+          const speedColor = algo === fastest ? 'var(--accent2)' : 'var(--text-dim)';
+          const row = document.createElement('div');
+          row.className = 'algo-row';
+          row.innerHTML = `<div class="algo-name">${algo.name}<span class="algo-complexity">${algo.complexity}</span></div><div><div class="bar-wrap"><div class="bar-fill ${algo.barClass}" style="width:0%"></div></div><div style="font-family:var(--font-mono);font-size:0.58rem;color:${speedColor};margin-top:4px;text-align:right">${speedup}</div></div><div class="algo-time" style="color:${algo.color}">${timeStr}</div><div class="algo-matches">${algo.matches.length} matches</div>`;
+          container.appendChild(row);
+          setTimeout(() => { row.querySelector('.bar-fill').style.width = barWidth + '%'; }, 50);
+        });
+        document.getElementById('winner-badge').textContent = '⚡ ' + fastest.name.toUpperCase() + ' FASTEST';
 
-    // Simulated times with realistic ratios based on sequence/pattern length
-    const n = seq.length, m = pat.length;
-    const baseNaive = Math.max(tNaive, 0.05);
-    const tSA = baseNaive * (Math.log2(n) / n * 2 + 0.1) * (m / n * 200 + 0.08);
-    const tST = baseNaive * 0.06 + 0.001;
-    const tDAWG = baseNaive * 0.04 + 0.001;
+        const positions = fastest.matches;
+        const matchCont = document.getElementById('match-tags');
+        document.getElementById('match-count').textContent = positions.length + ' matches found';
+        positions.slice(0, 20).forEach(pos => { const tag = document.createElement('span'); tag.className = 'match-tag'; tag.textContent = 'pos:' + pos; matchCont.appendChild(tag); });
+        if (positions.length > 20) { const more = document.createElement('span'); more.className = 'match-tag'; more.style.color = 'var(--text-dim)'; more.textContent = '+' + (positions.length - 20) + ' more'; matchCont.appendChild(more); }
 
-    const algos = [
-      { key: 'naive', name: 'Naive Search', complexity: 'O(n×m)', time: tNaive, barClass: 'bar-naive', color: 'var(--accent4)', matches: naiveMatches },
-      { key: 'sa', name: 'Suffix Array', complexity: 'O(m log n)', time: Math.max(tSA, 0.002), barClass: 'bar-suffix-array', color: 'var(--accent3)', matches: naiveMatches },
-      { key: 'st', name: 'Suffix Tree', complexity: 'O(m + k)', time: Math.max(tST, 0.001), barClass: 'bar-suffix-tree', color: 'var(--accent2)', matches: naiveMatches },
-      { key: 'dawg', name: 'DAWG', complexity: 'O(m)', time: Math.max(tDAWG, 0.0008), barClass: 'bar-dawg', color: '#dd88ff', matches: naiveMatches },
-    ];
+        renderColorizedSeq(seq, positions, pat.length);
 
-    // Filter by selected
-    const checked = {
-      naive: document.getElementById('chk-naive').checked,
-      sa: document.getElementById('chk-sa').checked,
-      st: document.getElementById('chk-st').checked,
-      dawg: document.getElementById('chk-dawg').checked,
-    };
-
-    const activeAlgos = algos.filter(a => checked[a.key]);
-    if (!activeAlgos.length) return;
-
-    const maxTime = Math.max(...activeAlgos.map(a => a.time));
-    const fastest = activeAlgos.reduce((a, b) => a.time < b.time ? a : b);
-
-    const container = document.getElementById('algo-results');
-    activeAlgos.forEach(algo => {
-      const barWidth = (algo.time / maxTime * 95).toFixed(1);
-      const timeStr = algo.time < 1 ? (algo.time * 1000).toFixed(2) + ' µs' :
-                      algo.time < 1000 ? algo.time.toFixed(3) + ' ms' :
-                      (algo.time / 1000).toFixed(2) + ' s';
-      const speedup = algo === fastest ? '⚡ FASTEST' : ((algo.time / fastest.time).toFixed(1) + '× slower');
-      const speedColor = algo === fastest ? 'var(--accent2)' : 'var(--text-dim)';
-
-      const row = document.createElement('div');
-      row.className = 'algo-row';
-      row.innerHTML = `
-        <div class="algo-name">${algo.name}<span class="algo-complexity">${algo.complexity}</span></div>
-        <div>
-          <div class="bar-wrap"><div class="bar-fill ${algo.barClass}" style="width:0%" data-target="${barWidth}"></div></div>
-          <div style="font-family:var(--font-mono);font-size:0.58rem;color:${speedColor};margin-top:4px;text-align:right">${speedup}</div>
-        </div>
-        <div class="algo-time" style="color:${algo.color}">${timeStr}</div>
-        <div class="algo-matches">${algo.matches.length} match${algo.matches.length !== 1 ? 'es' : ''}</div>
-      `;
-      container.appendChild(row);
-
-      // Animate bar
-      requestAnimationFrame(() => {
-        const fill = row.querySelector('.bar-fill');
-        setTimeout(() => { fill.style.width = barWidth + '%'; }, 50);
-      });
-    });
-
-    // Winner badge
-    document.getElementById('winner-badge').textContent = '⚡ ' + fastest.name.toUpperCase() + ' FASTEST';
-
-    // Match positions (use fastest)
-    const positions = fastest.matches;
-    const matchCont = document.getElementById('match-tags');
-    document.getElementById('match-count').textContent = positions.length + ' match' + (positions.length !== 1 ? 'es' : '') + ' found';
-
-    positions.slice(0, 20).forEach(pos => {
-      const tag = document.createElement('span');
-      tag.className = 'match-tag';
-      tag.textContent = 'pos:' + pos;
-      tag.onclick = () => scrollToMatch(seq, pos, pat.length);
-      matchCont.appendChild(tag);
-    });
-    if (positions.length > 20) {
-      const more = document.createElement('span');
-      more.className = 'match-tag';
-      more.style.color = 'var(--text-dim)';
-      more.textContent = '+' + (positions.length - 20) + ' more';
-      matchCont.appendChild(more);
+        const findings = document.getElementById('findings-list');
+        findings.innerHTML = `
+          <div class="finding">Found <strong style="color:var(--accent)">${positions.length}</strong> matches using real C++ backend.</div>
+          <div class="finding">Fastest algorithm: <strong style="color:var(--accent2)">${fastest.name}</strong></div>
+        `;
+      } catch (e) { console.error(e); loading.classList.remove('show'); }
     }
-
-    // Colorize sequence
-    renderColorizedSeq(seq, positions, pat.length);
-
-    // Findings
-    const speedupVsNaive = (tNaive / Math.max(tST, 0.0001)).toFixed(0);
-    const findings = document.getElementById('findings-list');
-    findings.innerHTML = `
-      <div class="finding">Found <strong style="color:var(--accent)">${positions.length}</strong> occurrence${positions.length !== 1?'s':''} of <strong style="color:var(--accent3)">"${pat}"</strong> in sequence</div>
-      <div class="finding">Suffix Tree was <strong style="color:var(--accent2)">${speedupVsNaive}×</strong> faster than Naive for this sequence</div>
-      <div class="finding">Sequence length: <strong style="color:var(--accent)">${seq.length.toLocaleString()} bp</strong> | Pattern length: <strong style="color:var(--accent)">${pat.length} bp</strong></div>
-      <div class="finding">Search density: ${((positions.length / seq.length) * 1000).toFixed(2)} matches per 1,000 bp</div>
-    `;
-  }, 800);
-}
-
 function renderColorizedSeq(seq, matchPositions, patLen) {
   const view = document.getElementById('seq-view');
   const matchSet = new Set(matchPositions.flatMap(p => Array.from({length: patLen}, (_, i) => p + i)));
@@ -1637,68 +1578,41 @@ function renderColorizedSeq(seq, matchPositions, patLen) {
 // ============================================================
 //  SEQUENCE COMPARISON
 // ============================================================
-function runComparison() {
-  const a = document.getElementById('seq-a').value.toUpperCase().replace(/[^ATCG]/g, '');
-  const b = document.getElementById('seq-b').value.toUpperCase().replace(/[^ATCG]/g, '');
-  if (!a || !b) return;
+async function runComparison() {
+      const a = document.getElementById('seq-a').value.toUpperCase().replace(/[^ATCG]/g, '');
+      const b = document.getElementById('seq-b').value.toUpperCase().replace(/[^ATCG]/g, '');
+      if (!a || !b) return;
 
-  // Simple alignment for short sequences (edit distance / local alignment)
-  const mutations = [];
-  const minLen = Math.min(a.length, b.length);
-  for (let i = 0; i < minLen; i++) {
-    if (a[i] !== b[i]) {
-      mutations.push({ pos: i, type: 'SNP', ref: a[i], alt: b[i], impact: Math.random() > 0.6 ? 'High' : Math.random() > 0.3 ? 'Medium' : 'Low' });
+      try {
+        const resp = await fetch('/api/compare', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({seqA: a, seqB: b}) });
+        const data = await resp.json();
+        
+        document.getElementById('sim-pct').textContent = data.similarity + '%';
+        document.getElementById('mut-count').textContent = data.mutations.length;
+        document.getElementById('lcs-len').textContent = data.lcsLen;
+
+        const maxShow = 80;
+        let aHtml = '', bHtml = '', matchLine = '';
+        for (let i = 0; i < Math.min(Math.min(a.length, b.length), maxShow); i++) {
+            const mismatch = a[i] !== b[i];
+            aHtml += `<span class="${mismatch ? 'C' : 'G'}">${a[i]}</span>`;
+            bHtml += `<span class="${mismatch ? 'accent4' : 'G'}" style="color:${mismatch ? 'var(--accent4)' : 'var(--accent2)'}">${b[i]}</span>`;
+            matchLine += mismatch ? '<span style="color:var(--accent4)">|</span>' : '<span style="color:var(--accent2)">|</span>';
+        }
+
+        document.getElementById('alignment-view').innerHTML = `<div style="font-size:0.6rem;color:var(--text-dim);margin-bottom:4px;font-family:var(--font-display);letter-spacing:0.1em">SEQ A:</div><div>${aHtml}</div><div style="margin:2px 0">${matchLine}</div><div style="font-size:0.6rem;color:var(--text-dim);margin-bottom:4px;font-family:var(--font-display);letter-spacing:0.1em">SEQ B:</div><div>${bHtml}</div>`;
+
+        const tbody = document.getElementById('mut-tbody');
+        tbody.innerHTML = '';
+        data.mutations.slice(0, 15).forEach(m => {
+            const impactClass = m.impact === 'High' ? 'impact-high' : m.impact === 'Medium' ? 'impact-medium' : 'impact-low';
+            const ctx = a.substring(Math.max(0, m.pos - 3), m.pos) + `<strong style="color:var(--accent4)">${m.ref}</strong>` + a.substring(m.pos + 1, m.pos + 4);
+            tbody.innerHTML += `<tr><td>${m.pos}</td><td><span class="type-snp">${m.type}</span></td><td><span class="${m.ref}">${m.ref}</span></td><td><span style="color:var(--accent4)">${m.alt}</span></td><td style="font-size:0.6rem">${ctx}</td><td class="${impactClass}">${m.impact}</td></tr>`;
+        });
+
+        document.getElementById('compare-results').style.display = 'block';
+      } catch (e) { console.error(e); }
     }
-  }
-
-  const lenDiff = Math.abs(a.length - b.length);
-  const matches = minLen - mutations.length;
-  const similarity = ((matches / Math.max(a.length, b.length)) * 100).toFixed(1);
-  const lcsLen = minLen - mutations.length;
-
-  document.getElementById('sim-pct').textContent = similarity + '%';
-  document.getElementById('mut-count').textContent = mutations.length;
-  document.getElementById('lcs-len').textContent = lcsLen;
-
-  // Alignment viz
-  const maxShow = 80;
-  let aHtml = '', bHtml = '', matchLine = '';
-  for (let i = 0; i < Math.min(minLen, maxShow); i++) {
-    const mismatch = a[i] !== b[i];
-    aHtml += `<span class="${mismatch ? 'C' : 'G'}">${a[i]}</span>`;
-    bHtml += `<span class="${mismatch ? 'accent4' : 'G'}" style="color:${mismatch?'var(--accent4)':'var(--accent2)'}">${b[i]}</span>`;
-    matchLine += mismatch ? '<span style="color:var(--accent4)">|</span>' : '<span style="color:var(--accent2)">|</span>';
-  }
-
-  document.getElementById('alignment-view').innerHTML =
-    `<div style="font-size:0.6rem;color:var(--text-dim);margin-bottom:4px;font-family:var(--font-display);letter-spacing:0.1em">SEQ A:</div><div>${aHtml}</div>` +
-    `<div style="margin:2px 0">${matchLine}</div>` +
-    `<div style="font-size:0.6rem;color:var(--text-dim);margin-bottom:4px;font-family:var(--font-display);letter-spacing:0.1em">SEQ B:</div><div>${bHtml}</div>`;
-
-  // Mutation table
-  const tbody = document.getElementById('mut-tbody');
-  tbody.innerHTML = '';
-  mutations.slice(0, 15).forEach(m => {
-    const impactClass = m.impact === 'High' ? 'impact-high' : m.impact === 'Medium' ? 'impact-medium' : 'impact-low';
-    const ctx = a.substring(Math.max(0, m.pos-3), m.pos) + `<strong style="color:var(--accent4)">${m.ref}</strong>` + a.substring(m.pos+1, m.pos+4);
-    tbody.innerHTML += `
-      <tr>
-        <td>${m.pos}</td>
-        <td><span class="type-snp">${m.type}</span></td>
-        <td><span class="${m.ref}">${m.ref}</span></td>
-        <td><span style="color:var(--accent4)">${m.alt}</span></td>
-        <td style="font-size:0.6rem">${ctx}</td>
-        <td class="${impactClass}">${m.impact}</td>
-      </tr>
-    `;
-  });
-
-  document.getElementById('compare-results').style.display = 'block';
-}
-
-// ============================================================
-//  BENCHMARK CHARTS
-// ============================================================
 let benchChart = null, memChart = null;
 
 function initCharts() {
@@ -1777,37 +1691,62 @@ function initCharts() {
 
 let benchmarkRunning = false;
 
-function runBenchmark() {
-  if (benchmarkRunning) return;
-  benchmarkRunning = true;
-  const loading = document.getElementById('bench-loading');
-  const status = document.getElementById('bench-status');
-  loading.classList.add('show');
+async function runBenchmark() {
+      if (benchmarkRunning) return;
+      benchmarkRunning = true;
+      const loading = document.getElementById('bench-loading');
+      const status = document.getElementById('bench-status');
+      loading.classList.add('show');
+      status.textContent = 'Running C++ benchmarks...';
 
-  const steps = ['Building suffix trees...', 'Running naive search...', 'Running suffix array...', 'Running DAWG...', 'Computing statistics...', 'Generating charts...'];
-  let i = 0;
-  const interval = setInterval(() => {
-    if (i < steps.length) {
-      status.textContent = steps[i++];
-    } else {
-      clearInterval(interval);
-      loading.classList.remove('show');
-      benchmarkRunning = false;
-      initCharts();
+      const chks = document.querySelectorAll('.sz-chk:checked');
+      const sizes = Array.from(chks).map(c => parseInt(c.value));
+      const patLen = document.getElementById('plen-val').textContent;
 
-      // Randomize results slightly for realism
-      const n = +(document.getElementById('naive-time') || {textContent: 245.3}).textContent;
-      document.getElementById('bt-naive').textContent = (200 + Math.random() * 100).toFixed(1);
-      document.getElementById('bt-sa').textContent = (70 + Math.random() * 30).toFixed(1);
-      document.getElementById('bt-st').textContent = (10 + Math.random() * 10).toFixed(1);
-      document.getElementById('bt-dawg').textContent = (8 + Math.random() * 8).toFixed(1);
+      try {
+        const resp = await fetch('/api/benchmark', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sizes, patLen}) });
+        const data = await resp.json();
+        
+        loading.classList.remove('show');
+        benchmarkRunning = false;
+        
+        const labels = data.sizes.map(s => s >= 1000000 ? (s/1000000)+'M' : s >= 1000 ? (s/1000)+'K' : s);
+        
+        const naiveData = data.results['naive_search'];
+        const saData = data.results['suffix_array_search'];
+        const stData = data.results['suffix_tree_search'];
+        const dawgData = data.results['dawg_search'];
+
+        const chartDefaults = {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#7ab8c8', font: { family: "'Share Tech Mono'", size: 10 } } } },
+            scales: { x: { ticks: { color: '#3a6070', font: { family: "'Share Tech Mono'", size: 10 } }, grid: { color: 'rgba(13,58,74,0.4)' } }, y: { ticks: { color: '#3a6070', font: { family: "'Share Tech Mono'", size: 10 } }, grid: { color: 'rgba(13,58,74,0.4)' } } }
+        };
+
+        if (benchChart) benchChart.destroy();
+        const ctx1 = document.getElementById('bench-chart').getContext('2d');
+        benchChart = new Chart(ctx1, {
+            type: 'line',
+            data: {
+              labels,
+              datasets: [
+                { label: 'Naive O(nm)', data: naiveData, borderColor: '#f03a6a', backgroundColor: 'rgba(240,58,106,0.08)', tension: 0.4, pointRadius: 4, pointBorderColor: '#f03a6a' },
+                { label: 'Suffix Array O(m log n)', data: saData, borderColor: '#f0a81a', backgroundColor: 'rgba(240,168,26,0.08)', tension: 0.4, pointRadius: 4, pointBorderColor: '#f0a81a' },
+                { label: 'Suffix Tree O(m+k)', data: stData, borderColor: '#0af068', backgroundColor: 'rgba(10,240,104,0.08)', tension: 0.4, pointRadius: 4, pointBorderColor: '#0af068' },
+                { label: 'DAWG O(m)', data: dawgData, borderColor: '#dd88ff', backgroundColor: 'rgba(168,85,247,0.08)', tension: 0.4, pointRadius: 4, pointBorderColor: '#dd88ff' },
+              ]
+            },
+            options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toFixed(4)} ms` } } }, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, title: { display: true, text: 'Time (ms)', color: '#3a6070', font: { family: "'Share Tech Mono'", size: 10 } } } } }
+        });
+
+        // Update table
+        if (naiveData.length) document.getElementById('bt-naive').textContent = naiveData[naiveData.length-1].toFixed(2);
+        if (saData.length) document.getElementById('bt-sa').textContent = saData[saData.length-1].toFixed(2);
+        if (stData.length) document.getElementById('bt-st').textContent = stData[stData.length-1].toFixed(2);
+        if (dawgData.length) document.getElementById('bt-dawg').textContent = dawgData[dawgData.length-1].toFixed(2);
+
+      } catch(e) { console.error(e); loading.classList.remove('show'); benchmarkRunning = false; }
     }
-  }, 400);
-}
-
-// ============================================================
-//  VERSION HISTORY
-// ============================================================
 function selectVersion(el, label) {
   document.querySelectorAll('.timeline-item').forEach(i => i.classList.remove('active-ver'));
   el.classList.add('active-ver');

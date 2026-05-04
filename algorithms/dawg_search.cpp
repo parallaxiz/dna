@@ -13,6 +13,9 @@
  */
 
 #include <iostream>
+#include <numeric>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -216,7 +219,7 @@ struct DAWG {
                  << (st[i].isClone ? MAGENTA + string("  yes") + RESET : DIM + string("   no") + RESET) << "  │ ";
 
             bool first = true;
-            for (auto& [ch, nxt] : st[i].next) {
+            for (auto& kv : st[i].next) { auto ch = kv.first; auto nxt = kv.second;
                 if (!first) cout << " ";
                 cout << colourBase(ch) << DIM << "→" << RESET << nxt;
                 first = false;
@@ -242,81 +245,62 @@ vector<int> findPositions(const string& seq, const string& pat) {
 
 // ── main ───────────────────────────────────────────────────
 int main(int argc, char* argv[]) {
-    string seq = "ATGAAATCGATCGATCGATCGTAGCTAGCTAGCTATGAAAGCTAGCTATGAAATCGATCGTAGCTATGAAAGCTAGCTATGAAA";
-    string pat = "ATGAAA";
-
-    if (argc >= 3) {
-        seq = argv[1];
-        pat = argv[2];
+    string seq, pat;
+    bool jsonOut = false;
+    for(int i=1; i<argc; i++) {
+        string arg = argv[i];
+        if (arg == "--json") jsonOut = true;
+        else if (seq.empty()) seq = arg;
+        else if (pat.empty()) pat = arg;
     }
 
-    for (auto& c : seq) c = toupper(c);
-    for (auto& c : pat) c = toupper(c);
+    if (!seq.empty()) {
+        ifstream fs(seq);
+        if (fs.good()) { stringstream buffer; buffer << fs.rdbuf(); seq = buffer.str(); }
+    } else {
+        seq = "ATGAAATCGATCGATCGATCGTAGCTAGCTAGCTATGAAAGCTAGCTATGAAATCGATCGTAGCTATGAAAGCTAGCTATGAAA";
+    }
 
-    cout << "\n" << BOLD << MAGENTA
-         << "╔══════════════════════════════════════════════════╗\n"
-         << "║             DAWG (SUFFIX AUTOMATON)             ║\n"
-         << "║              PATTERN SEARCH                     ║\n"
-         << "╚══════════════════════════════════════════════════╝"
-         << RESET << "\n\n";
+    if (!pat.empty()) {
+        ifstream fp(pat);
+        if (fp.good()) { stringstream buffer; buffer << fp.rdbuf(); pat = buffer.str(); }
+    } else {
+        pat = "ATGAAA";
+    }
 
-    cout << DIM << "Algorithm : " << RESET << "Suffix Automaton (DAWG) — smallest automaton\n"
-         << "            recognising all substrings\n";
-    cout << DIM << "Build     : " << RESET << "O(n)\n";
-    cout << DIM << "Search    : " << RESET << "O(m)\n";
-    cout << DIM << "Sequence  : " << RESET << seq.size() << " bp\n";
-    cout << DIM << "Pattern   : " << RESET << colourSeq(pat) << " (" << pat.size() << " bp)\n\n";
+    for (auto& c : seq) { if (c != '$') c = toupper(c); }
+    for (auto& c : pat) { if (c != '$') c = toupper(c); }
 
-    // Build
-    cout << DIM << "──────── Building Automaton ────────" << RESET << "\n\n";
+    double buildUs = 0.0;
+    double searchUs = 0.0;
 
+    if (!jsonOut) cout << "DAWG Pattern Search\n";
     auto t0 = chrono::high_resolution_clock::now();
     DAWG dawg;
-    for (int i = 0; i < (int)seq.size(); i++)
-        dawg.extend(seq[i], true, i);
+    for (int i = 0; i < (int)seq.size(); i++) dawg.extend(seq[i], !jsonOut, i);
     dawg.computeCounts();
     auto t1 = chrono::high_resolution_clock::now();
-    double buildUs = chrono::duration<double, micro>(t1 - t0).count();
+    buildUs = chrono::duration<double, micro>(t1 - t0).count();
 
-    if ((int)seq.size() > 25)
-        cout << DIM << "    ... (" << (seq.size() - 25) << " more characters processed)" << RESET << "\n";
-
-    cout << "\n  Total states: " << BOLD << dawg.st.size() << RESET << "\n\n";
-
-    cout << DIM << "──────── Automaton Structure (first 20 states) ────────" << RESET << "\n\n";
-    dawg.printAutomaton(20);
-    cout << "\n";
-
-    // Search
     auto t2 = chrono::high_resolution_clock::now();
-    auto result = dawg.search(pat, true);
+    auto result = dawg.search(pat, !jsonOut);
     auto t3 = chrono::high_resolution_clock::now();
-    double searchUs = chrono::duration<double, micro>(t3 - t2).count();
+    searchUs = chrono::duration<double, micro>(t3 - t2).count();
+    
+    auto matches = findPositions(seq, pat);
 
-    // Find actual positions
-    auto positions = findPositions(seq, pat);
-
-    cout << "\n" << DIM << "──────── Results ────────" << RESET << "\n\n";
-    cout << "  Pattern exists  : " << (result.found ? GREEN + string("YES") : RED + string("NO")) << RESET << "\n";
-    cout << "  Occurrences     : " << BOLD << GREEN << positions.size() << RESET << "\n";
-    cout << "  Match positions : ";
-    for (size_t k = 0; k < positions.size(); k++) {
-        if (k) cout << ", ";
-        cout << CYAN << positions[k] << RESET;
+    if (jsonOut) {
+        cout << "{\"matches\":[";
+        for (size_t k = 0; k < matches.size(); k++) {
+            if (k) cout << ",";
+            cout << matches[k];
+        }
+        cout << "], \"buildUs\":" << buildUs << ", \"searchUs\":" << searchUs << "}\n";
+        return 0;
     }
-    if (positions.empty()) cout << DIM << "(none)" << RESET;
-    cout << "\n";
 
-    cout << "\n" << DIM << "──────── Timing ────────" << RESET << "\n\n";
-    auto fmtTime = [](double us) -> string {
-        char buf[64];
-        if (us < 1000) snprintf(buf, sizeof(buf), "%.2f µs", us);
-        else            snprintf(buf, sizeof(buf), "%.3f ms", us / 1000.0);
-        return string(buf);
-    };
-    cout << "  Build time  : " << BOLD << YELLOW << fmtTime(buildUs) << RESET << "\n";
-    cout << "  Search time : " << BOLD << YELLOW << fmtTime(searchUs) << RESET << "\n";
-    cout << "  Total       : " << BOLD << YELLOW << fmtTime(buildUs + searchUs) << RESET << "\n\n";
-
+    cout << "\n  Matches found   : " << matches.size() << "\n";
+    cout << "  Build time  : " << buildUs << " us\n";
+    cout << "  Search time : " << searchUs << " us\n";
     return 0;
 }
