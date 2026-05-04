@@ -53,18 +53,29 @@ string colourSeq(const string& s) {
 
 // ── Suffix Automaton (DAWG) ────────────────────────────────
 struct DAWG {
+    static int charToIndex(char c) {
+        if (c == 'A') return 0;
+        if (c == 'T') return 1;
+        if (c == 'G') return 2;
+        if (c == 'C') return 3;
+        return 4; // $
+    }
+
     struct State {
         int len, link;
-        unordered_map<char, int> next;
+        int next[5];
         bool isClone;               // for display purposes
         long long cnt;              // endpos count
-        State() : len(0), link(-1), isClone(false), cnt(0) {}
+        State() : len(0), link(-1), isClone(false), cnt(0) {
+            for(int i=0; i<5; i++) next[i] = -1;
+        }
     };
 
     vector<State> st;
     int last;
 
-    DAWG() {
+    DAWG(int max_n = 0) {
+        if (max_n > 0) st.reserve(max_n * 2 + 10);
         st.emplace_back();          // initial state (id = 0)
         st[0].link = -1;
         st[0].len = 0;
@@ -72,9 +83,10 @@ struct DAWG {
     }
 
     void extend(char c, bool verbose, int pos) {
+        int idx = charToIndex(c);
         // check if transition already exists (online)
-        if (st[last].next.count(c)) {
-            int q = st[last].next[c];
+        if (st[last].next[idx] != -1) {
+            int q = st[last].next[idx];
             if (st[q].len == st[last].len + 1) {
                 last = q;
                 st[last].cnt++;
@@ -86,8 +98,8 @@ struct DAWG {
             st[clone].isClone = true;
             st[clone].cnt = 0;
 
-            while (last != -1 && st[last].next.count(c) && st[last].next[c] == q) {
-                st[last].next[c] = clone;
+            while (last != -1 && st[last].next[idx] != -1 && st[last].next[idx] == q) {
+                st[last].next[idx] = clone;
                 last = st[last].link;
             }
             st[q].link = clone;
@@ -102,15 +114,15 @@ struct DAWG {
         st[cur].cnt = 1;
 
         int p = last;
-        while (p != -1 && !st[p].next.count(c)) {
-            st[p].next[c] = cur;
+        while (p != -1 && st[p].next[idx] == -1) {
+            st[p].next[idx] = cur;
             p = st[p].link;
         }
 
         if (p == -1) {
             st[cur].link = 0;
         } else {
-            int q = st[p].next[c];
+            int q = st[p].next[idx];
             if (st[q].len == st[p].len + 1) {
                 st[cur].link = q;
             } else {
@@ -120,8 +132,8 @@ struct DAWG {
                 st[clone].isClone = true;
                 st[clone].cnt = 0;
 
-                while (p != -1 && st[p].next.count(c) && st[p].next[c] == q) {
-                    st[p].next[c] = clone;
+                while (p != -1 && st[p].next[idx] != -1 && st[p].next[idx] == q) {
+                    st[p].next[idx] = clone;
                     p = st[p].link;
                 }
                 st[q].link = clone;
@@ -174,6 +186,7 @@ struct DAWG {
 
         for (int i = 0; i < m; i++) {
             char c = pat[i];
+            int idx = charToIndex(c);
 
             if (verbose) {
                 cout << "    step " << setw(2) << (i + 1)
@@ -181,13 +194,13 @@ struct DAWG {
                      << " + '" << colourBase(c) << "'  →  ";
             }
 
-            if (st[cur].next.count(c) == 0) {
+            if (st[cur].next[idx] == -1) {
                 if (verbose)
                     cout << RED << "NO TRANSITION — pattern not found" << RESET << "\n";
                 return {false, -1, 0};
             }
 
-            cur = st[cur].next[c];
+            cur = st[cur].next[idx];
 
             if (verbose) {
                 cout << "state " << BOLD << cur << RESET
@@ -219,9 +232,12 @@ struct DAWG {
                  << (st[i].isClone ? MAGENTA + string("  yes") + RESET : DIM + string("   no") + RESET) << "  │ ";
 
             bool first = true;
-            for (auto& kv : st[i].next) { auto ch = kv.first; auto nxt = kv.second;
+            char idxToChar[] = {'A', 'T', 'G', 'C', '$'};
+            for (int j=0; j<5; j++) {
+                int nxt = st[i].next[j];
+                if (nxt == -1) continue;
                 if (!first) cout << " ";
-                cout << colourBase(ch) << DIM << "→" << RESET << nxt;
+                cout << colourBase(idxToChar[j]) << DIM << "→" << RESET << nxt;
                 first = false;
             }
             cout << "\n";
@@ -276,7 +292,7 @@ int main(int argc, char* argv[]) {
 
     if (!jsonOut) cout << "DAWG Pattern Search\n";
     auto t0 = chrono::high_resolution_clock::now();
-    DAWG dawg;
+    DAWG dawg(seq.size());
     for (int i = 0; i < (int)seq.size(); i++) dawg.extend(seq[i], !jsonOut, i);
     dawg.computeCounts();
     auto t1 = chrono::high_resolution_clock::now();

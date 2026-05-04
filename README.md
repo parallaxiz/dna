@@ -1,54 +1,55 @@
-# DNA Sequence Analyzer
+# 🧬 DNA Intelligence Platform
 
-A high-performance, web-based genomic intelligence platform designed for real-time DNA sequence analysis, pattern matching, and mutation tracking. This application combines a Python Streamlit backend with a sophisticated, custom-engineered HTML5/JavaScript frontend to provide a cyberpunk-inspired, interactive diagnostic experience.
+A production-ready, high-performance genomic analysis suite. This platform integrates a **Flask** backend with high-speed **C++** pattern-searching algorithms and a premium, cyberpunk-inspired **JavaScript** dashboard.
 
-## 🧬 Key Features
+## 🚀 Key Features
 
-* **Multi-Algorithm Pattern Search**: Compare the performance of various string-searching algorithms including Naive Search, Suffix Array, Suffix Tree (Ukkonen's), and Directed Acyclic Word Graph (DAWG).
-* **Real-time Sequence Statistics**: Instant calculation of GC content, sequence length, and nucleotide composition (A, T, G, C distribution).
-* **Sequence Comparison & Alignment**: Align two sequences to identify mutations (SNPs), calculate similarity percentages, and determine the Longest Common Subsequence (LCS).
-* **Interactive Benchmarking**: Visualize search time vs. sequence length and memory usage across different data structures.
-* **Version Control & Persistent Storage**: Track analysis history and view storage efficiency gains when using persistent data structures (delta-based storage).
-* **Genomic File Support**: Upload and process `.fasta`, `.fa`, and `.fna` files directly in the browser.
+*   **Native C++ Engine**: High-performance implementations of Suffix Trees (Ukkonen's), Suffix Arrays, and Directed Acyclic Word Graphs (DAWG).
+*   **Real-time Dashboard**: Interactive visualization of GC content, nucleotide distribution, and algorithm performance benchmarking.
+*   **Genomic File Handling**: Dynamic file upload support with automatic sequence extraction and session-based persistence.
+*   **Sequence Comparison**: SNP detection and similarity scoring between genomic sequences (e.g., SARS-CoV-2, BRCA1).
+*   **Cyberpunk Aesthetics**: State-of-the-art UI with glassmorphism, dynamic gradients, and responsive data visualizations using Chart.js.
 
 ## 🛠️ Technology Stack
 
-* **Backend**: Streamlit (Python)
-* **Frontend**: HTML5, CSS3 (Custom Cyberpunk UI), JavaScript (ES6+)
-* **Data Visualization**: Chart.js
-* **Typography**: Orbitron, Share Tech Mono, and Rajdhani Google Fonts
+*   **Backend**: Python (Flask)
+*   **Computation**: C++17 (Optimized binaries)
+*   **Frontend**: HTML5, Vanilla CSS, JavaScript (ES6+)
+*   **Visualization**: Chart.js
+*   **Typography**: Orbitron, Rajdhani, and Share Tech Mono
 
 ## 📂 Project Structure
 
 ```text
-├── app.py              # Streamlit entry point; handles page config and UI injection
-├── dna_analyzer.html   # Core application logic, styles, and interactive UI
-└── pyrightconfig.json  # Python type-checking configuration
+├── app.py                  # Flask REST API server
+├── dna_analyzer.html       # Single-page Application (UI & JS Logic)
+├── algorithms/             # C++ Source and Optimized Binaries
+│   ├── naive_search.cpp
+│   ├── suffix_array_search.cpp
+│   ├── suffix_tree_search.cpp
+│   └── dawg_search.cpp
+└── README.md
 ```
 
-## 🚀 Getting Started
+## ⚙️ Setup & Execution
 
-### Prerequisites
+### 1. Compile Algorithms
+Ensure you have `g++` installed. From the root directory:
+```bash
+g++ -O3 -o algorithms/naive_search.exe algorithms/naive_search.cpp
+g++ -O3 -o algorithms/suffix_array_search.exe algorithms/suffix_array_search.cpp
+g++ -O3 -o algorithms/suffix_tree_search.exe algorithms/suffix_tree_search.cpp
+g++ -O3 -o algorithms/dawg_search.exe algorithms/dawg_search.cpp
+```
 
-* Python 3.11+
-* Streamlit
+### 2. Run the Application
+Install dependencies and start the Flask server:
+```bash
+pip install flask
+python app.py
+```
+Visit `http://127.0.0.1:5000` in your browser.
 
-### Installation & Execution
+## 📊 Algorithmic Performance
 
-1.  Clone the repository to your local machine.
-2.  Ensure your environment matches the configuration in `pyrightconfig.json` if you require type-checking.
-3.  Run the application using Streamlit:
-    ```bash
-    streamlit run app.py
-    ```
-
-## 📊 Algorithmic Overview
-
-The platform is designed to showcase the efficiency of different genomic data structures:
-
-| Algorithm | Complexity | Best For |
-| :--- | :--- | :--- |
-| **Suffix Tree** | O(m + k) | Multiple pattern searches on the same sequence |
-| **Suffix Array** | O(m log n) | Memory-constrained environments (4n bytes) |
-| **DAWG** | O(m) | Space-efficient pattern repetition |
-| **Naive Search** | O(n × m) | Baseline comparison with no preprocessing |
+The platform compares O(n) preprocessing structures (Suffix Tree/DAWG) against baseline searching to demonstrate efficiency gains on large genomic datasets.

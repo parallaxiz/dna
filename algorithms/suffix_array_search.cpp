@@ -52,12 +52,26 @@ string colourSeq(const string& s) {
 // ── build suffix array ─────────────────────────────────────
 vector<int> buildSuffixArray(const string& s, bool verbose) {
     int n = s.size();
-    vector<int> sa(n);
-    iota(sa.begin(), sa.end(), 0);   // sa = {0, 1, 2, ..., n-1}
+    vector<int> sa(n), rank(n), tmp(n);
+    for (int i = 0; i < n; i++) {
+        sa[i] = i;
+        rank[i] = (unsigned char)s[i];
+    }
 
-    sort(sa.begin(), sa.end(), [&](int a, int b) {
-        return s.compare(a, string::npos, s, b, string::npos) < 0;
-    });
+    for (int k = 1; k < n; k <<= 1) {
+        auto cmp = [&](int i, int j) {
+            if (rank[i] != rank[j]) return rank[i] < rank[j];
+            int ri = i + k < n ? rank[i + k] : -1;
+            int rj = j + k < n ? rank[j + k] : -1;
+            return ri < rj;
+        };
+        sort(sa.begin(), sa.end(), cmp);
+        tmp[sa[0]] = 0;
+        for (int i = 1; i < n; i++)
+            tmp[sa[i]] = tmp[sa[i - 1]] + cmp(sa[i - 1], sa[i]);
+        rank = tmp;
+        if (rank[sa[n - 1]] == n - 1) break;
+    }
 
     if (verbose) {
         cout << DIM << "──────── Suffix Array (first 20 entries) ────────" << RESET << "\n\n";
