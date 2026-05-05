@@ -74,28 +74,45 @@ def compare():
     a = data.get("seqA", "")
     b = data.get("seqB", "")
     
-    mutations = []
-    min_len = min(len(a), len(b))
+    if not a or not b:
+        return jsonify({"similarity": 0, "mutations": [], "lcsLen": 0})
+
+    import tempfile
+    import json
     
-    for i in range(min_len):
-        if a[i] != b[i]:
-            # simple impact heuristic
-            import random
-            r = random.random()
-            impact = "High" if r > 0.6 else ("Medium" if r > 0.3 else "Low")
-            mutations.append({
-                "pos": i, "type": "SNP", "ref": a[i], "alt": b[i], "impact": impact
-            })
+    with tempfile.NamedTemporaryFile(mode='w', delete=False) as fa, \
+         tempfile.NamedTemporaryFile(mode='w', delete=False) as fb:
+        fa.write(a)
+        fb.write(b)
+        a_path = fa.name
+        b_path = fb.name
+
+    exe_name = "sequence_compare.exe" if os.name == 'nt' else "sequence_compare"
+    exe_path = os.path.join(ALGO_DIR, exe_name)
+
+    try:
+        if not os.path.exists(exe_path):
+            return jsonify({"error": "Executable not found", "similarity": 0, "mutations": [], "lcsLen": 0})
             
-    matches = min_len - len(mutations)
-    max_len = max(len(a), len(b))
-    sim = (matches / max_len * 100) if max_len > 0 else 100
-    
-    return jsonify({
-        "similarity": round(sim, 1),
-        "mutations": mutations,
-        "lcsLen": matches
-    })
+        result = subprocess.run(
+            [exe_path, a_path, b_path, "--json"],
+            capture_output=True, text=True, check=True
+        )
+        output = result.stdout.strip()
+        start = output.find('{')
+        end = output.rfind('}')
+        if start != -1 and end != -1:
+            json_str = output[start:end+1]
+            res_data = json.loads(json_str)
+            res_data["similarity"] = round(res_data.get("similarity", 0), 1)
+            return jsonify(res_data)
+        else:
+            return jsonify({"error": "Invalid output", "similarity": 0, "mutations": [], "lcsLen": 0})
+    except Exception as e:
+        return jsonify({"error": str(e), "similarity": 0, "mutations": [], "lcsLen": 0})
+    finally:
+        if os.path.exists(a_path): os.remove(a_path)
+        if os.path.exists(b_path): os.remove(b_path)
 
 @app.route("/api/benchmark", methods=["POST"])
 def benchmark():
