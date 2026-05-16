@@ -75,6 +75,24 @@ struct DAWG {
         }
         return st[cur].cnt;
     }
+
+    void save(const string& path) {
+        ofstream ofs(path, ios::binary);
+        size_t sz = st.size();
+        ofs.write((char*)&sz, sizeof(sz));
+        ofs.write((char*)st.data(), sz * sizeof(State));
+        ofs.write((char*)&last, sizeof(last));
+    }
+
+    bool load(const string& path) {
+        ifstream ifs(path, ios::binary);
+        if (!ifs.good()) return false;
+        size_t sz; ifs.read((char*)&sz, sizeof(sz));
+        st.resize(sz);
+        ifs.read((char*)st.data(), sz * sizeof(State));
+        ifs.read((char*)&last, sizeof(last));
+        return true;
+    }
 };
 
 vector<int> findPositions(const string& seq, const string& pat) {
@@ -84,10 +102,12 @@ vector<int> findPositions(const string& seq, const string& pat) {
 }
 
 int main(int argc, char* argv[]) {
-    string seq, pat; bool jsonOut = false;
+    string seq, pat, savePath, loadPath; bool jsonOut = false;
     for(int i=1; i<argc; i++) {
         string arg = argv[i];
         if (arg == "--json") jsonOut = true;
+        else if (arg == "--save" && i + 1 < argc) savePath = argv[++i];
+        else if (arg == "--load" && i + 1 < argc) loadPath = argv[++i];
         else if (seq.empty()) seq = arg;
         else if (pat.empty()) pat = arg;
     }
@@ -102,16 +122,28 @@ int main(int argc, char* argv[]) {
     for (auto& c : seq) if (c != '$') c = toupper(c);
     for (auto& c : pat) if (c != '$') c = toupper(c);
 
+    DAWG dawg;
+    double buildUs = 0;
     auto t0 = chrono::high_resolution_clock::now();
-    DAWG dawg; for (char c : seq) dawg.extend(c); dawg.computeCounts();
-    auto t1 = chrono::high_resolution_clock::now();
-    int count = dawg.search(pat);
-    auto t2 = chrono::high_resolution_clock::now();
-    auto matches = findPositions(seq, pat);
-    auto t3 = chrono::high_resolution_clock::now();
+    bool loaded = false;
+    if (!loadPath.empty()) loaded = dawg.load(loadPath);
 
-    double buildUs = chrono::duration<double, micro>(t1 - t0).count();
-    double searchUs = chrono::duration<double, micro>(t2 - t1).count();
+    if (!loaded) {
+        for (char c : seq) dawg.extend(c);
+        dawg.computeCounts();
+        auto t1 = chrono::high_resolution_clock::now();
+        buildUs = chrono::duration<double, micro>(t1 - t0).count();
+        if (!savePath.empty()) dawg.save(savePath);
+    } else {
+        buildUs = 0;
+    }
+
+    auto t2 = chrono::high_resolution_clock::now();
+    int count = dawg.search(pat);
+    auto t3 = chrono::high_resolution_clock::now();
+    auto matches = findPositions(seq, pat);
+    auto t4 = chrono::high_resolution_clock::now();
+    double searchUs = chrono::duration<double, micro>(t3 - t2).count();
 
     if (jsonOut) {
         cout << "{\"matches\":[";

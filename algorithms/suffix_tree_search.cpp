@@ -27,6 +27,8 @@ struct SuffixTree {
         if (c == 'G') return 2; if (c == 'C') return 3; return 4;
     }
 
+    SuffixTree() : leafEnd(0), activeNode(0), activeEdge(0), activeLen(0), remaining(0), lastNewNode(-1) {}
+
     SuffixTree(const string& s) : text(s), leafEnd(0), activeLen(0), remaining(0), lastNewNode(-1) {
         if (s.size() < 10000000) nodes.reserve(s.size() * 2 + 10);
         else nodes.reserve(s.size() * 1.5);
@@ -111,13 +113,35 @@ struct SuffixTree {
         }
         return {};
     }
+
+    void save(const string& path) {
+        ofstream ofs(path, ios::binary);
+        size_t sz = nodes.size();
+        ofs.write((char*)&sz, sizeof(sz));
+        ofs.write((char*)nodes.data(), sz * sizeof(Node));
+        ofs.write((char*)&root, sizeof(root));
+        ofs.write((char*)&leafEnd, sizeof(leafEnd));
+    }
+
+    bool load(const string& path) {
+        ifstream ifs(path, ios::binary);
+        if (!ifs.good()) return false;
+        size_t sz; ifs.read((char*)&sz, sizeof(sz));
+        nodes.resize(sz);
+        ifs.read((char*)nodes.data(), sz * sizeof(Node));
+        ifs.read((char*)&root, sizeof(root));
+        ifs.read((char*)&leafEnd, sizeof(leafEnd));
+        return true;
+    }
 };
 
 int main(int argc, char* argv[]) {
-    string seq, pat; bool jsonOut = false;
+    string seq, pat, savePath, loadPath; bool jsonOut = false;
     for(int i=1; i<argc; i++) {
         string arg = argv[i];
         if (arg == "--json") jsonOut = true;
+        else if (arg == "--save" && i + 1 < argc) savePath = argv[++i];
+        else if (arg == "--load" && i + 1 < argc) loadPath = argv[++i];
         else if (seq.empty()) seq = arg;
         else if (pat.empty()) pat = arg;
     }
@@ -133,14 +157,26 @@ int main(int argc, char* argv[]) {
     for (auto& c : pat) if (c != '$') c = toupper(c);
     if (seq.empty() || seq.back() != '$') seq += "$";
 
+    SuffixTree st;
+    st.text = seq;
+    double buildUs = 0;
     auto t0 = chrono::high_resolution_clock::now();
-    SuffixTree st(seq);
-    auto t1 = chrono::high_resolution_clock::now();
-    auto matches = st.search(pat);
-    auto t2 = chrono::high_resolution_clock::now();
+    bool loaded = false;
+    if (!loadPath.empty()) loaded = st.load(loadPath);
+    
+    if (!loaded) {
+        st = SuffixTree(seq);
+        auto t1 = chrono::high_resolution_clock::now();
+        buildUs = chrono::duration<double, micro>(t1 - t0).count();
+        if (!savePath.empty()) st.save(savePath);
+    } else {
+        buildUs = 0;
+    }
 
-    double buildUs = chrono::duration<double, micro>(t1 - t0).count();
-    double searchUs = chrono::duration<double, micro>(t2 - t1).count();
+    auto t2 = chrono::high_resolution_clock::now();
+    auto matches = st.search(pat);
+    auto t3 = chrono::high_resolution_clock::now();
+    double searchUs = chrono::duration<double, micro>(t3 - t2).count();
 
     if (jsonOut) {
         cout << "{\"matches\":[";

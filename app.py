@@ -9,21 +9,31 @@ app = Flask(__name__)
 # Ensure algorithms folder exists and binaries are executable
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ALGO_DIR = os.path.join(BASE_DIR, "algorithms")
+import hashlib
 
-def run_algo(algo_name, seq_file, pat_file):
+BUILDS_DIR = os.path.join(BASE_DIR, "builds")
+if not os.path.exists(BUILDS_DIR): os.makedirs(BUILDS_DIR)
+
+def run_algo(algo_name, seq_file, pat_file, seq_hash=None):
     exe_name = f"{algo_name}.exe" if os.name == 'nt' else algo_name
     exe_path = os.path.join(ALGO_DIR, exe_name)
     
     if not os.path.exists(exe_path):
         return {"error": f"Executable not found: {exe_name}", "buildUs": 0, "searchUs": 0, "matches": []}
         
+    cmd = [exe_path, seq_file, pat_file, "--json"]
+    
+    # Persistent Build Logic
+    if seq_hash and algo_name != "naive_search":
+        cache_path = os.path.join(BUILDS_DIR, f"{algo_name}_{seq_hash}.bin")
+        if os.path.exists(cache_path):
+            cmd += ["--load", cache_path]
+        else:
+            cmd += ["--save", cache_path]
+            
     try:
-        result = subprocess.run(
-            [exe_path, seq_file, pat_file, "--json"],
-            capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         output = result.stdout.strip()
-        # Find the JSON part in case there's any stray output
         start = output.find('{')
         end = output.rfind('}')
         if start != -1 and end != -1:
@@ -48,23 +58,29 @@ def search():
     if not seq or not pat:
         return jsonify({"error": "Missing sequence or pattern"}), 400
         
-    with tempfile.NamedTemporaryFile(mode='w', delete=False) as fseq, \
-         tempfile.NamedTemporaryFile(mode='w', delete=False) as fpat:
+    # Hash the sequence to identify it uniquely
+    seq_hash = hashlib.sha256(seq.encode()).hexdigest()[:16]
+        
+    fseq = tempfile.NamedTemporaryFile(mode='w', delete=False)
+    fpat = tempfile.NamedTemporaryFile(mode='w', delete=False)
+    try:
         fseq.write(seq)
         fpat.write(pat)
+        fseq.close()
+        fpat.close()
+        
         seq_path = fseq.name
         pat_path = fpat.name
 
-    results = {}
-    try:
+        results = {}
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor() as executor:
-            futures = {algo: executor.submit(run_algo, algo, seq_path, pat_path) for algo in algos}
+            futures = {algo: executor.submit(run_algo, algo, seq_path, pat_path, seq_hash) for algo in algos}
             for algo, future in futures.items():
                 results[algo] = future.result()
     finally:
-        if os.path.exists(seq_path): os.remove(seq_path)
-        if os.path.exists(pat_path): os.remove(pat_path)
+        if 'seq_path' in locals() and os.path.exists(seq_path): os.remove(seq_path)
+        if 'pat_path' in locals() and os.path.exists(pat_path): os.remove(pat_path)
             
     return jsonify({"results": results})
 
